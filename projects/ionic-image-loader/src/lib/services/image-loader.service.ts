@@ -105,7 +105,7 @@ export class ImageLoaderService {
     );
   }
 
-  private get isWKWebView(): boolean {
+  private get isIOSPlatform(): boolean {
     return (
       this.platform.is('ios') &&
       (<any>window).webkit &&
@@ -113,9 +113,9 @@ export class ImageLoaderService {
     );
   }
 
-  private get isIonicWKWebView(): boolean {
+  private get isAndroidPlatform(): boolean {
     return (
-      //  Important: isWKWebview && isIonicWKWebview must be mutually excluse.
+      //  Important: isIOSPlatform && isAndroidPlatform must be mutually excluse.
       //  Otherwise the logic for copying to tmp under IOS will fail.
       (this.platform.is('android') && this.webview) ||
       (this.platform.is('android')) && (location.host === 'localhost:8080') ||
@@ -175,7 +175,7 @@ export class ImageLoaderService {
       try {
         await this.file.removeFile(route, fileName);
 
-        if (this.isWKWebView && !this.isIonicWKWebView) {
+        if (this.isIOSPlatform && !this.isAndroidPlatform) {
           await this.file.removeFile(this.file.tempDirectory + this.config.cacheDirectoryName, fileName);
         }
       } catch (err) {
@@ -200,7 +200,7 @@ export class ImageLoaderService {
       try {
         await this.file.removeRecursively(this.getFileCacheDirectory(), this.config.cacheDirectoryName);
 
-        if (this.isWKWebView && !this.isIonicWKWebView) {
+        if (this.isIOSPlatform && !this.isAndroidPlatform) {
           // also clear the temp files
           try {
             this.file.removeRecursively(this.file.tempDirectory, this.config.cacheDirectoryName);
@@ -525,7 +525,7 @@ export class ImageLoaderService {
   private async removeFile(file: string): Promise<any> {
     await this.file.removeFile(this.getFileCacheDirectory() + this.config.cacheDirectoryName, file);
 
-    if (this.isWKWebView && !this.isIonicWKWebView) {
+    if (this.isIOSPlatform && !this.isAndroidPlatform) {
       try {
         return this.file.removeFile(this.file.tempDirectory + this.config.cacheDirectoryName, file);
       } catch (err) {
@@ -576,11 +576,11 @@ export class ImageLoaderService {
       // now check if iOS device & using WKWebView Engine.
       // in this case only the tempDirectory is accessible,
       // therefore the file needs to be copied into that directory first!
-      if (this.isIonicWKWebView) {
+      if (this.isAndroidPlatform) {
         return this.normalizeUrl(fileEntry);
       }
 
-      if (!this.isWKWebView) {
+      if (!this.isIOSPlatform) {
         // return native path
         return fileEntry.nativeURL;
       }
@@ -673,7 +673,7 @@ export class ImageLoaderService {
         .catch(() => this.file.createDir(this.getFileCacheDirectory(), this.config.cacheDirectoryName, false));
     }
 
-    if (this.isWKWebView && !this.isIonicWKWebView) {
+    if (this.isIOSPlatform && !this.isAndroidPlatform) {
       if (replace) {
         // create or replace the temp directory
         tempDirectoryPromise = this.file.createDir(
