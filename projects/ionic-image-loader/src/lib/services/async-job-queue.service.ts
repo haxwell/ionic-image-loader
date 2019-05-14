@@ -1,6 +1,4 @@
 import { Injectable } from '@angular/core';
-// import { Observable } from 'rxjs/Observable';
-// import { Observer } from 'rxjs/Observer';
 import * as Rx from 'rxjs';
 
 @Injectable({
@@ -8,6 +6,8 @@ import * as Rx from 'rxjs';
 })
 export class AsyncJobQueueService {
 
+	_maxConcurrency = 5;
+	
 	constructor() {
 
 	}
@@ -23,21 +23,21 @@ export class AsyncJobQueueService {
 
 		let emitter = undefined;
 
-		// what is 'observable' is the data that people give to a function; that is what runs through this queue.
+		// The 'observable' part is the data that people give to a function; that is what runs through this queue.
 		let asyncQueue = Rx.Observable.create(e => emitter = e);
 
 		// when that data is presented to the queue, the queue can take one of three actions. We define them here.
 		let observer = {
 			next:
 			(data) => {
-				console.log("The observer just got some data!!");
 				// execute a job
 				try {
 					let v = doWorkFunc(data);
-
-					if (!v) throw new Error("The function given to async-job-queue to do work, did not return a promise.")
 					
-					v.then(() => { console.log("the observer call to the doWorkFunc has finished. Now calling the done func"); data.doneFunc(); })
+					if (!v) {
+						throw new Error("The value in the worker function given to async-job-queue, was not an async function or a promise.")
+					}
+				
 				} catch (err) {
 					console.log("Error: " + err)
 				}
@@ -52,59 +52,83 @@ export class AsyncJobQueueService {
 			}
 		};
 
-		// Here we tell the queue, here's what to do when something happens.
+		// With this line we tell our currently-being-created queue, here's what to do when something happens.
 		let disposable = asyncQueue.subscribe(observer.next, observer.err, observer.complete);
 
 		// above is the basis of a queue which will asynchronously run a function for as many times as you call
 		//  it with data. What we need now is to throttle this a bit, so that only a few executions of our function
 		//  can happen at any given time. This object we return does that throttling. A client will be able to call
-		//  the queue with data as many times as they would like, and this object will ensure they all run, but only
-		//  a few at at time, not all of them.
+		//  on our object to process data as many times as they would like, and this object will ensure they all run, 
+		//  but only a few at at time, not all of them.
 
 		let _total = 0;
-		let maxConcurrency = 5;
-		let fullQueue = [];
-		let throttledQueue = [];
+		let maxConcurrency = this.getMaxConcurrency();
+		let waiting2ProcessingQueue = [];
+		let currentlyProcessingQueue = [];
 
 		let rtn = {
 			next: (data) => { 
-
-				console.log("inside getQueue().next(data)");
-
+				
 				let inst = {};
 				let instId = ++_total;
+
+				if (!data) data = {};
 
 				inst["id"] = instId;
 				inst["data"] = data;
 
+				data["instId"] = inst["id"];
 				data["doneFunc"] = () => { 
-					console.log("now inside the done() func. throttled queue has a length of " + throttledQueue.length);
-					throttledQueue = throttledQueue.filter((inst) => { 
-						inst.id != instId;
+
+					// TODO: Think about how to tell that the client is NOT calling this function when
+					//  the queueFunction completes. If they do not call this function, they will experience
+					//  errors where items do not get processed, because the throttled queue is full, and 
+					//  they are not calling this function to empty it. That will be a common error, and
+					//  if we can tell, and generate a helpful message, the world will be a better place.
+					// ---
+
+
+					// since this function should only be called when the queueFunction has completed, we
+					//  assume it's done, and remove it from our currently-processing queue
+					currentlyProcessingQueue = currentlyProcessingQueue.filter((inst) => { 
+						return inst.id && inst.id != instId;
 					})
-					console.log("throttledQueue now has " + throttledQueue.length);
 
-					// process the next item in the list
-					let nextInst = fullQueue.pop();
+					// if there is a next-item-in-the-list
+					let nextInst = waiting2ProcessingQueue.pop();
 
+					// ...process it
 					if (nextInst) {
-						console.log("supposedly removed one from the throttled queue, so now the full queue has work, so we process it");
-						emitter.next(nextInst["data"]);
+
+						// using a macro task which will run in the next cycle of the event loop, give another 
+						// item to our observable, so our observer can begin processing it.
+						setTimeout(() => {
+							emitter.next(nextInst["data"]);
+						}, 0)
 					}
 				}
 
-				if (throttledQueue.length < maxConcurrency) {
-					console.log("throttledqueue length has room to take work, so we're giving it.");
-					throttledQueue.push(inst);
+				if (currentlyProcessingQueue.length < maxConcurrency) {
+					currentlyProcessingQueue.push(inst);
 
-					console.log("telling the emitter we have some data");
-					emitter.next(inst["data"]);
+					setTimeout(() => {
+						emitter.next(inst["data"]);
+					}, 0);
+
 				} else {
-					fullQueue.push(inst);
+					waiting2ProcessingQueue.push(inst);
 				}
 			}
 		}
 
 		return rtn;
+	}
+
+	getMaxConcurrency() {
+		return this._maxConcurrency;
+	}
+
+	setMaxConcurrency(val) {
+		this._maxConcurrency = val; 
 	}
 }
